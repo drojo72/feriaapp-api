@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.py[cod]
+.env
+.env.local
+.idea/
+.vscode/
+*.swp
+.DS_Store
+ios/
+android/
+build/
+.dart_tool/
