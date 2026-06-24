@@ -3,7 +3,7 @@ FeriaApp API v2.1
 FastAPI + PostgreSQL (Neon) + JWT Auth
 """
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -192,8 +192,8 @@ async def root():
         "health": "/health"
     }
 
-@app.get("/health", response_model=HealthCheck, tags=["Health"])
-async def health_check(conn=Depends(get_db)):
+@app.api_route("/health", methods=["GET", "HEAD"], response_model=HealthCheck, tags=["Health"])
+async def health_check(request: Request, conn=Depends(get_db)):
     try:
         db_status = await conn.fetchval("SELECT 1")
         return HealthCheck(
