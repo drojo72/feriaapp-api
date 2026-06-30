@@ -11,3 +11,8 @@ ios/
 android/
 build/
 .dart_tool/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage

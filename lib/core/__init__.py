@@ -1,1 +1,1 @@
-# vacío
+# Core package
