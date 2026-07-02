@@ -71,9 +71,7 @@ async def listar_auditoria(
             params.append(tipo)
 
     if search:
-        query += " AND (rl.motivo ILIKE $" + str(len(params) + 1) +
-                 " OR rl.operador ILIKE $" + str(len(params) + 2) +
-                 " OR rl.campo_afectado ILIKE $" + str(len(params) + 3) + ")"
+        query += " AND (rl.motivo ILIKE $" + str(len(params) + 1) + " OR rl.operador ILIKE $" + str(len(params) + 2) + " OR rl.campo_afectado ILIKE $" + str(len(params) + 3) + ")"
         search_term = f"%{search}%"
         params.extend([search_term, search_term, search_term])
 
