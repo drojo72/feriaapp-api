@@ -22,15 +22,34 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 # ============================================
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verificar contraseña con bcrypt nativo. Compatible con hashes PHP ($2y$)."""
-    # PHP usa $2y$, Python bcrypt espera $2b$
-    if hashed_password.startswith("$2y$"):
-        hashed_password = hashed_password.replace("$2y$", "$2b$", 1)
-    
-    plain = plain_password.encode('utf-8')
-    hashed = hashed_password.encode('utf-8')
-    
-    return bcrypt.checkpw(plain, hashed)
+    """Verificar contraseña con bcrypt. Compatible con PHP ($2y$) y Python ($2b$)."""
+    try:
+        # Si es hash PHP, convertir a $2b$ para Python
+        if hashed_password.startswith("$2y$"):
+            hash_to_check = hashed_password.replace("$2y$", "$2b$", 1)
+        else:
+            hash_to_check = hashed_password
+
+        plain = plain_password.encode('utf-8')
+        hashed = hash_to_check.encode('utf-8')
+
+        return bcrypt.checkpw(plain, hashed)
+
+    except ValueError as e:
+        # Si falla, intentar con el hash original sin conversión
+        if "$2y$" in hashed_password:
+            try:
+                return bcrypt.checkpw(
+                    plain_password.encode('utf-8'),
+                    hashed_password.encode('utf-8')
+                )
+            except:
+                pass
+        print(f"⚠️ Error verificando contraseña: {e}")
+        return False
+    except Exception as e:
+        print(f"⚠️ Error inesperado: {e}")
+        return False
 
 
 def hash_password(password: str) -> str:
