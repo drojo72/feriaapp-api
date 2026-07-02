@@ -7,35 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from lib.core.database import get_db
 from lib.core.security import get_current_user
+
+# ✅ Import explícito de modelos
 from lib.models.productos import ProductoOut, ProductoCreate, ProductoUpdate, MovimientoPrendaIn
 
 router = APIRouter(prefix="/productos", tags=["Productos"])
 
-# lib/models/productos.py (agregar)
-
-class ProductoOut(BaseModel):
-    # ... campos existentes ...
-    historia_origen: Optional[str] = None
-    historia_ubicacion: Optional[str] = None
-    historia_motivo: Optional[str] = None
-    historia_tags: Optional[List[str]] = None
-    qr_code: Optional[str] = None
-    fecha_recepcion: Optional[date] = None
-    clasificado_por_id: Optional[int] = None
-
-class ProductoCreate(BaseModel):
-    # ... campos existentes ...
-    historia_origen: Optional[str] = None
-    historia_ubicacion: Optional[str] = None
-    historia_motivo: Optional[str] = None
-    historia_tags: Optional[List[str]] = None
-    fecha_recepcion: Optional[date] = None
-
-class MovimientoPrendaIn(BaseModel):
-    canal_origen: Optional[str] = None
-    canal_destino: str  # boutique, feria, donacion, retazo
-    motivo: str  # OBLIGATORIO
-    notas: Optional[str] = None
 
 @router.get("/bodega", response_model=List[ProductoOut])
 async def listar_bodega(
@@ -50,17 +27,7 @@ async def listar_bodega(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Listar productos en bodega - OPTIMIZADO: índices compuestos + paginación
-
-    Filtros disponibles:
-    - estado: disponible, vendido, reservado, etc.
-    - categoria_revistete_id: categoría Re-Vistete
-    - categoria_feriaapp_id: categoría FeriaApp
-    - genero_id: género del producto
-    - nivel_calidad_id: nivel de calidad
-    - search: búsqueda por nombre (usa índice GIN si existe pg_trgm)
-    """
+    """Listar productos en bodega - OPTIMIZADO: índices compuestos + paginación"""
     query = """
         SELECT id, nombre, categoria_feriaapp_id, subcategoria_feriaapp_id,
                categoria_revistete_id, subcategoria_revistete_id,
@@ -94,23 +61,19 @@ async def listar_bodega(
         query += " AND nivel_calidad_id = $" + str(len(params) + 1)
         params.append(nivel_calidad_id)
 
-    # Búsqueda por nombre usando pg_trgm si existe el índice
     if search:
         search_term = f"%{search}%"
         query += " AND nombre ILIKE $" + str(len(params) + 1)
         params.append(search_term)
 
-    # Ordenar y paginar
     query += " ORDER BY updated_at DESC LIMIT $" + str(len(params) + 1) + " OFFSET $" + str(len(params) + 2)
     params.extend([limit, offset])
 
     rows = await conn.fetch(query, *params)
 
-    # Serializar con manejo de precios como int
     result = []
     for r in rows:
         d = dict(r)
-        # Asegurar que precios sean int o null
         for key in ['precio_online', 'precio_feria', 'precio_standard', 'precio_final']:
             if d.get(key) is not None:
                 d[key] = int(d[key])
@@ -126,9 +89,7 @@ async def contar_bodega(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Contar productos en bodega para paginación
-    """
+    """Contar productos en bodega para paginación"""
     query = "SELECT COUNT(*) FROM productos WHERE activo = TRUE"
     params = []
 
@@ -151,9 +112,7 @@ async def listar_disponibles(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Listar productos disponibles para venta (más rápido usando índice compuesto)
-    """
+    """Listar productos disponibles para venta (más rápido usando índice compuesto)"""
     rows = await conn.fetch("""
         SELECT id, nombre, categoria_feriaapp_id, subcategoria_feriaapp_id,
                categoria_revistete_id, subcategoria_revistete_id,
@@ -185,9 +144,7 @@ async def obtener_producto_bodega(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Obtener producto por ID
-    """
+    """Obtener producto por ID"""
     row = await conn.fetchrow("""
         SELECT id, nombre, categoria_feriaapp_id, subcategoria_feriaapp_id,
                categoria_revistete_id, subcategoria_revistete_id,
@@ -219,9 +176,7 @@ async def listar_por_categoria(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Listar productos por categoría Re-Vistete - Usa índice compuesto
-    """
+    """Listar productos por categoría Re-Vistete - Usa índice compuesto"""
     query = """
         SELECT id, nombre, categoria_feriaapp_id, subcategoria_feriaapp_id,
                categoria_revistete_id, subcategoria_revistete_id,
@@ -260,9 +215,7 @@ async def crear_producto(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Ingresar nuevo producto a bodega. Registra evaluador (usuario actual).
-    """
+    """Ingresar nuevo producto a bodega. Registra evaluador (usuario actual)."""
     row = await conn.fetchrow("""
         INSERT INTO productos (
             nombre, categoria_feriaapp_id, categoria_revistete_id,
@@ -313,9 +266,7 @@ async def actualizar_producto(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Actualizar producto existente. Solo campos enviados se modifican.
-    """
+    """Actualizar producto existente. Solo campos enviados se modifican."""
     existing = await conn.fetchrow(
         "SELECT id FROM productos WHERE id = $1 AND activo = TRUE",
         producto_id
@@ -381,9 +332,7 @@ async def cambiar_estado_producto(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Cambiar estado de un producto rápidamente
-    """
+    """Cambiar estado de un producto rápidamente"""
     estados_validos = ['disponible', 'vendido', 'reservado', 'donado', 'retazo', 'en_evaluacion']
     if estado not in estados_validos:
         raise HTTPException(
@@ -408,9 +357,7 @@ async def eliminar_producto(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Soft-delete: marca activo = FALSE. No borra físicamente.
-    """
+    """Soft-delete: marca activo = FALSE. No borra físicamente."""
     result = await conn.execute(
         "UPDATE productos SET activo = FALSE, estado = 'en_evaluacion' WHERE id = $1",
         producto_id
@@ -432,15 +379,7 @@ async def listar_flujos_productos(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Listar flujos de productos (movimientos entre canales)
-
-    Tipos de flujo:
-    - boutique: Producto clasificado para online
-    - feria: Producto clasificado para feria
-    - donacion: Producto clasificado para donación
-    - retazo: Producto clasificado para retazo/reciclaje
-    """
+    """Listar flujos de productos (movimientos entre canales)"""
     query = """
         SELECT
             fp.id,
@@ -492,7 +431,6 @@ async def listar_flujos_productos(
         query += " AND fp.fecha_movimiento <= $" + str(len(params) + 1) + "::date"
         params.append(fecha_hasta)
 
-    # Contar total
     count_query = query.replace(
         "SELECT \n            fp.id,\n            fp.producto_id,\n            p.nombre as producto_nombre,\n            p.sku,\n            fp.canal_origen,\n            fp.canal_destino as tipo,\n            fp.nivel_calidad_origen_id,\n            fp.nivel_calidad_destino_id,\n            fp.motivo,\n            fp.evaluado_por_id,\n            u.nombre as evaluado_por,\n            fp.fecha_movimiento,\n            fp.notas,\n            p.estado,\n            p.historia_origen,\n            p.historia_ubicacion,\n            p.historia_motivo,\n            nc_origen.nombre as calidad_origen,\n            nc_destino.nombre as calidad_destino",
         "SELECT COUNT(*) as total"
@@ -518,10 +456,7 @@ async def estadisticas_flujos(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Estadísticas de flujos de productos
-    """
-    # Conteo por tipo de flujo
+    """Estadísticas de flujos de productos"""
     por_tipo = await conn.fetch("""
         SELECT
             canal_destino as tipo,
@@ -531,7 +466,6 @@ async def estadisticas_flujos(
         ORDER BY total DESC
     """)
 
-    # Conteo por mes
     por_mes = await conn.fetch("""
         SELECT
             TO_CHAR(fecha_movimiento, 'YYYY-MM') as mes,
@@ -542,7 +476,6 @@ async def estadisticas_flujos(
         ORDER BY mes DESC
     """)
 
-    # Últimos movimientos con productos
     ultimos = await conn.fetch("""
         SELECT
             fp.id,
@@ -564,6 +497,7 @@ async def estadisticas_flujos(
         "total_movimientos": sum(r['total'] for r in por_tipo)
     }
 
+
 @router.post("/{producto_id}/mover")
 async def mover_producto(
     producto_id: int,
@@ -571,11 +505,7 @@ async def mover_producto(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Mover un producto entre canales (boutique → feria → donacion → retazo)
-    Registra el flujo en flujo_prenda para trazabilidad.
-    """
-    # Verificar que el producto existe
+    """Mover un producto entre canales (boutique → feria → donacion → retazo)"""
     producto = await conn.fetchrow(
         "SELECT id, nombre, estado, nivel_calidad_id FROM productos WHERE id = $1 AND activo = TRUE",
         producto_id
@@ -583,7 +513,6 @@ async def mover_producto(
     if not producto:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
 
-    # Verificar canal destino válido
     canales_validos = ['boutique', 'feria', 'donacion', 'retazo']
     if movimiento.canal_destino not in canales_validos:
         raise HTTPException(
@@ -591,16 +520,13 @@ async def mover_producto(
             detail=f"Canal destino inválido. Opciones: {', '.join(canales_validos)}"
         )
 
-    # Obtener nivel de calidad según canal destino
     nivel_calidad_map = {
-        'boutique': 1,  # Asumimos IDs de niveles_calidad
+        'boutique': 1,
         'feria': 2,
         'retazo': 3
     }
-    # Para donación no tiene nivel de calidad específico
     nuevo_nivel_calidad = nivel_calidad_map.get(movimiento.canal_destino)
 
-    # Calcular nuevo estado
     estado_map = {
         'boutique': 'disponible',
         'feria': 'disponible',
@@ -610,7 +536,6 @@ async def mover_producto(
     nuevo_estado = estado_map.get(movimiento.canal_destino, 'disponible')
 
     async with conn.transaction():
-        # Registrar en flujo_prenda
         await conn.execute("""
             INSERT INTO flujo_prenda (
                 producto_id,
@@ -633,7 +558,6 @@ async def mover_producto(
             movimiento.notas
         )
 
-        # Actualizar producto
         await conn.execute("""
             UPDATE productos SET
                 estado = $1,
