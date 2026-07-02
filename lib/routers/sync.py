@@ -2,7 +2,7 @@
 FeriaApp API v2.1 — Router: Sync (batch offline que realmente aplica cambios)
 OPTIMIZADO: Soporta campos redundantes, mejor logging y manejo de conflictos
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from lib.core.database import get_db
