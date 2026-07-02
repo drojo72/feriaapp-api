@@ -2,7 +2,7 @@
 FeriaApp API v2.1 â€” Router: Auth (JSON puro)
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel
 
 from lib.core.database import get_db
@@ -15,9 +15,12 @@ from lib.models.auth import Token, TokenRefresh, UsuarioOut, LoginRequest   # â†
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 @router.post("/login", response_model=Token)
-async def login(login_data: LoginRequest, conn=Depends(get_db)):
+async def login(login_data: LoginRequest 0 Body(...), conn=Depends(get_db)):
     """Login con JSON"""
     user = await conn.fetchrow(
         """
