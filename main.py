@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from lib.core.config import settings
 from lib.core.database import init_pool, close_pool
-from lib.routers import auth, catalogo, productos, ventas, eventos, sync, health
+from lib.routers import auth, catalogo, productos, ventas, eventos, sync, health, auditoria
 
 # Configuración logging
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +36,8 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
     max_age=3600,
 )
+
+app.include_router(auditoria.router)
 
 # ============================================
 # LIFECYCLE

@@ -1,6 +1,6 @@
 """
 FeriaApp API v2.1 — Router: Eventos (CRUD, cierre, reapertura, resumen)
-Frugal: eventos siempre abiertos hasta cierre manual. Solo admin reabre.
+OPTIMIZADO: SIN JOINs - Usa campos redundantes
 """
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,31 +16,126 @@ router = APIRouter(prefix="/eventos", tags=["Eventos"])
 async def listar_eventos(
     estado: Optional[str] = None,
     tipo_canal: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """Listar eventos. Filtros por estado y tipo de canal."""
+    """
+    Listar eventos - OPTIMIZADO: 0 JOINs (usa campos redundantes)
+    """
     query = """
-        SELECT ef.id, ef.fecha, ef.lugar, ef.estado, ef.total_calculado,
-               ef.total_confirmado, ef.diferencia,
-               cv.nombre as canal_venta, cv.tipo as tipo_canal,
-               u.nombre as vendedor_principal
-        FROM eventos_feria ef
-        JOIN canales_venta cv ON ef.canal_venta_id = cv.id
-        JOIN usuarios u ON ef.vendedor_principal_id = u.id
+        SELECT id, fecha, lugar, estado, total_calculado,
+               total_confirmado, diferencia,
+               canal_venta_nombre as canal_venta,
+               canal_venta_tipo as tipo_canal,
+               vendedor_nombre as vendedor_principal,
+               created_at, updated_at
+        FROM eventos_feria
         WHERE 1=1
     """
     params = []
+
     if estado:
-        query += " AND ef.estado = $" + str(len(params) + 1)
+        query += " AND estado = $" + str(len(params) + 1)
         params.append(estado)
+
     if tipo_canal:
-        query += " AND cv.tipo = $" + str(len(params) + 1)
+        query += " AND canal_venta_tipo = $" + str(len(params) + 1)
         params.append(tipo_canal)
-    query += " ORDER BY ef.fecha DESC"
+
+    query += " ORDER BY fecha DESC LIMIT $" + str(len(params) + 1) + " OFFSET $" + str(len(params) + 2)
+    params.extend([limit, offset])
 
     rows = await conn.fetch(query, *params)
     return [dict(r) for r in rows]
+
+
+@router.get("/{evento_id}")
+async def obtener_evento(
+    evento_id: int,
+    conn=Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Obtener evento - OPTIMIZADO: 0 JOINs
+    """
+    evento = await conn.fetchrow("""
+        SELECT id, fecha, lugar, estado, total_calculado,
+               total_confirmado, diferencia,
+               canal_venta_nombre as canal_venta,
+               canal_venta_tipo as tipo_canal,
+               vendedor_nombre as vendedor_principal,
+               revisado_por_id, fecha_revision, fecha_cierre,
+               notas, created_at, updated_at
+        FROM eventos_feria
+        WHERE id = $1
+    """, evento_id)
+
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    return dict(evento)
+
+
+@router.get("/{evento_id}/resumen")
+async def resumen_evento(
+    evento_id: int,
+    conn=Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Resumen de evento - OPTIMIZADO: usa vista materializada
+    """
+    evento = await conn.fetchrow(
+        "SELECT id, estado, fecha_cierre FROM eventos_feria WHERE id = $1",
+        evento_id
+    )
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    # ✅ Usar vista materializada (0 JOINs)
+    resumen = await conn.fetchrow("""
+        SELECT total_ventas, total_recaudado,
+               total_efectivo, total_transferencia, total_diferido,
+               total_debito, total_credito, total_trueque,
+               total_rebajas, promedio_venta,
+               clientes_unicos, productos_unicos_vendidos,
+               total_items_vendidos, ultima_venta
+        FROM mv_resumen_eventos
+        WHERE evento_id = $1
+    """, evento_id)
+
+    # Detalle de productos (solo cuando es necesario)
+    productos = await conn.fetch("""
+        SELECT p.id, p.nombre, SUM(lv.cantidad) as cantidad_vendida,
+               SUM(lv.subtotal) as total_recaudado
+        FROM lineas_venta lv
+        JOIN journal_ventas jv ON lv.venta_id = jv.id
+        LEFT JOIN productos p ON lv.producto_id = p.id
+        WHERE jv.evento_feria_id = $1
+        GROUP BY p.id, p.nombre
+        ORDER BY total_recaudado DESC
+        LIMIT 20
+    """, evento_id)
+
+    return {
+        "evento": {
+            "id": evento["id"],
+            "estado": evento["estado"],
+            "fecha_cierre": evento["fecha_cierre"]
+        },
+        "totales": dict(resumen) if resumen else {
+            "total_ventas": 0,
+            "total_recaudado": 0,
+            "total_efectivo": 0,
+            "total_transferencia": 0,
+            "total_diferido": 0,
+            "total_rebajas": 0,
+            "promedio_venta": 0
+        },
+        "productos": [dict(r) for r in productos]
+    }
 
 
 @router.post("/", response_model=dict, status_code=201)
@@ -49,20 +144,21 @@ async def crear_evento(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """Crear nuevo evento de feria. Siempre inicia como 'activo'."""
+    """
+    Crear evento - El trigger llena automáticamente campos redundantes
+    """
     from datetime import datetime
-    
-    # Verificar que el canal de venta existe
+
+    # Verificar canal existe
     canal = await conn.fetchrow(
         "SELECT id FROM canales_venta WHERE id = $1", evento.canal_venta_id
     )
     if not canal:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Canal de venta id={evento.canal_venta_id} no existe"
         )
 
-    # Parsear fecha string a date object
     try:
         fecha_parsed = datetime.strptime(evento.fecha, "%Y-%m-%d").date()
     except ValueError:
@@ -80,72 +176,10 @@ async def crear_evento(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al crear evento: {str(e)}")
 
-    return {"id": evento_id, "estado": "activo", "message": "Evento creado. Requiere cierre manual."}
-
-
-@router.get("/{evento_id}")
-async def obtener_evento(
-    evento_id: int,
-    conn=Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    """Obtener evento con detalle de ventas."""
-    evento = await conn.fetchrow("""
-        SELECT ef.*, cv.nombre as canal_venta, cv.tipo as tipo_canal,
-               u.nombre as vendedor_principal
-        FROM eventos_feria ef
-        JOIN canales_venta cv ON ef.canal_venta_id = cv.id
-        JOIN usuarios u ON ef.vendedor_principal_id = u.id
-        WHERE ef.id = $1
-    """, evento_id)
-    if not evento:
-        raise HTTPException(status_code=404, detail="Evento no encontrado")
-    return dict(evento)
-
-
-@router.get("/{evento_id}/resumen")
-async def resumen_evento(
-    evento_id: int,
-    conn=Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    """Resumen de evento: totales por producto y por forma de pago."""
-    evento = await conn.fetchrow(
-        "SELECT id, estado, fecha_cierre FROM eventos_feria WHERE id = $1", evento_id
-    )
-    if not evento:
-        raise HTTPException(status_code=404, detail="Evento no encontrado")
-
-    formas_pago = await conn.fetch("""
-        SELECT forma_pago, COUNT(*) as cantidad_ventas, SUM(total_venta) as total
-        FROM journal_ventas
-        WHERE evento_feria_id = $1
-        GROUP BY forma_pago
-    """, evento_id)
-
-    productos = await conn.fetch("""
-        SELECT p.id, p.nombre, SUM(lv.cantidad) as cantidad_vendida,
-               SUM(lv.subtotal) as total_recaudado
-        FROM lineas_venta lv
-        JOIN journal_ventas jv ON lv.venta_id = jv.id
-        LEFT JOIN productos p ON lv.producto_id = p.id
-        WHERE jv.evento_feria_id = $1
-        GROUP BY p.id, p.nombre
-        ORDER BY total_recaudado DESC
-    """, evento_id)
-
-    totales = await conn.fetchrow("""
-        SELECT COUNT(*) as total_ventas, SUM(total_venta) as total_recaudado,
-               SUM(COALESCE(diferencia_rebaja, 0)) as total_rebajas
-        FROM journal_ventas
-        WHERE evento_feria_id = $1
-    """, evento_id)
-
     return {
-        "evento": dict(evento),
-        "totales": dict(totales) if totales else {},
-        "formas_pago": [dict(r) for r in formas_pago],
-        "productos": [dict(r) for r in productos]
+        "id": evento_id,
+        "estado": "activo",
+        "message": "Evento creado. Requiere cierre manual."
     }
 
 
@@ -156,12 +190,12 @@ async def cerrar_evento(
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """Cerrar evento. Requiere total_confirmado (revisión manual).
-
-    Una vez cerrado, no se permiten más ventas ni modificaciones desde app móvil.
+    """
+    Cerrar evento - El trigger mantiene campos sincronizados
     """
     evento = await conn.fetchrow(
-        "SELECT id, estado, total_calculado FROM eventos_feria WHERE id = $1", evento_id
+        "SELECT id, estado, total_calculado FROM eventos_feria WHERE id = $1",
+        evento_id
     )
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
@@ -198,12 +232,12 @@ async def reabrir_evento(
     conn=Depends(get_db),
     current_user=Depends(require_admin)
 ):
-    """[ADMIN ONLY] Reabrir evento cerrado. Requiere nota explicativa.
-
-    Solo Claudio (propietario) puede reabrir. Registra log de modificación.
+    """
+    [ADMIN ONLY] Reabrir evento cerrado - Trigger actualiza campos automáticamente
     """
     evento = await conn.fetchrow(
-        "SELECT id, estado, total_confirmado, fecha_cierre FROM eventos_feria WHERE id = $1", evento_id
+        "SELECT id, estado, total_confirmado, fecha_cierre FROM eventos_feria WHERE id = $1",
+        evento_id
     )
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
@@ -238,3 +272,21 @@ async def reabrir_evento(
         "evento_id": evento_id,
         "nota": reapertura.nota_reapertura
     }
+
+
+@router.post("/refresh-vistas", tags=["Admin"])
+async def refresh_vistas(
+    conn=Depends(get_db),
+    current_user=Depends(require_admin)
+):
+    """
+    [ADMIN ONLY] Refrescar vistas materializadas manualmente
+    """
+    try:
+        await conn.execute("REFRESH MATERIALIZED VIEW mv_resumen_eventos")
+        return {
+            "message": "Vistas materializadas actualizadas exitosamente",
+            "vista": "mv_resumen_eventos"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al refrescar vistas: {str(e)}")

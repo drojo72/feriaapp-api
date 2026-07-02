@@ -1,7 +1,6 @@
 """
 FeriaApp API v2.1 — Router: Ventas (transacción completa con líneas)
-Frugal: una sola transacción para venta + líneas + rebajas.
-Auth requerido.
+OPTIMIZADO: 0 JOINs para listados - Usa campos redundantes
 """
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,19 +12,100 @@ from lib.models.ventas import VentaIn, VentaOut, ModificacionVentaIn, VentaResum
 router = APIRouter(prefix="/ventas", tags=["Ventas"])
 
 
+@router.get("/", response_model=List[dict])
+async def listar_ventas(
+    evento_id: Optional[int] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    conn=Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Listar ventas - OPTIMIZADO: 0 JOINs (usa campos redundantes)
+    """
+    query = """
+        SELECT id, timestamp_local, total_venta, forma_pago,
+               estado_pago, sync_estado, notas,
+               evento_fecha, evento_lugar, evento_estado,
+               vendedor_nombre, created_at, updated_at
+        FROM journal_ventas
+        WHERE 1=1
+    """
+    params = []
+
+    if evento_id:
+        query += " AND evento_feria_id = $" + str(len(params) + 1)
+        params.append(evento_id)
+
+    if fecha_desde:
+        query += " AND timestamp_local >= $" + str(len(params) + 1)
+        params.append(fecha_desde)
+
+    if fecha_hasta:
+        query += " AND timestamp_local <= $" + str(len(params) + 1)
+        params.append(fecha_hasta)
+
+    query += " ORDER BY timestamp_local DESC LIMIT $" + str(len(params) + 1) + " OFFSET $" + str(len(params) + 2)
+    params.extend([limit, offset])
+
+    rows = await conn.fetch(query, *params)
+    return [dict(r) for r in rows]
+
+
+@router.get("/{venta_id}")
+async def obtener_venta(
+    venta_id: int,
+    conn=Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Obtener venta con líneas - JOIN solo para líneas
+    """
+    # ✅ Solo 1 consulta sin JOINs para la venta
+    venta = await conn.fetchrow("""
+        SELECT id, uuid, evento_feria_id, usuario_id, dispositivo_id,
+               timestamp_local, timestamp_sync,
+               forma_pago, estado_pago,
+               total_venta, precio_standard_total, precio_final_total,
+               diferencia_rebaja, porcentaje_rebaja, tipo_rebaja,
+               motivo_rebaja, sync_estado, notas,
+               evento_fecha, evento_lugar, evento_estado,
+               vendedor_nombre, created_at, updated_at
+        FROM journal_ventas
+        WHERE id = $1
+    """, venta_id)
+
+    if not venta:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+
+    # Líneas (con JOIN solo para nombre de producto)
+    lineas = await conn.fetch("""
+        SELECT lv.*, p.nombre as nombre_producto
+        FROM lineas_venta lv
+        LEFT JOIN productos p ON lv.producto_id = p.id
+        WHERE lv.venta_id = $1
+    """, venta_id)
+
+    return {
+        "venta": dict(venta),
+        "lineas": [dict(l) for l in lineas]
+    }
+
+
 @router.post("/", response_model=dict, status_code=201)
 async def crear_venta(
     venta: VentaIn,
     conn=Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """Registrar venta completa con líneas de venta.
-
-    Transacción atómica: si falla una línea, rollback completo.
-    Calcula totales automáticamente desde líneas.
+    """
+    Registrar venta - El trigger llena campos redundantes automáticamente
     """
     evento = await conn.fetchrow(
-        "SELECT id, estado FROM eventos_feria WHERE id = $1", venta.evento_feria_id
+        "SELECT id, estado FROM eventos_feria WHERE id = $1",
+        venta.evento_feria_id
     )
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
@@ -103,70 +183,6 @@ async def crear_venta(
     }
 
 
-@router.get("/", response_model=List[dict])
-async def listar_ventas(
-    evento_id: Optional[int] = None,
-    fecha_desde: Optional[str] = None,
-    fecha_hasta: Optional[str] = None,
-    conn=Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    """Listar ventas con filtros. Máximo 100 registros."""
-    query = """
-        SELECT jv.id, jv.timestamp_local, jv.total_venta, jv.forma_pago,
-               jv.estado_pago, jv.sync_estado, jv.notas,
-               ef.fecha as fecha_evento, ef.lugar, ef.estado as estado_evento,
-               u.nombre as vendedor
-        FROM journal_ventas jv
-        JOIN eventos_feria ef ON jv.evento_feria_id = ef.id
-        JOIN usuarios u ON jv.usuario_id = u.id
-        WHERE 1=1
-    """
-    params = []
-    if evento_id:
-        query += " AND jv.evento_feria_id = $" + str(len(params) + 1)
-        params.append(evento_id)
-    if fecha_desde:
-        query += " AND jv.timestamp_local >= $" + str(len(params) + 1)
-        params.append(fecha_desde)
-    if fecha_hasta:
-        query += " AND jv.timestamp_local <= $" + str(len(params) + 1)
-        params.append(fecha_hasta)
-    query += " ORDER BY jv.timestamp_local DESC LIMIT 100"
-
-    rows = await conn.fetch(query, *params)
-    return [dict(r) for r in rows]
-
-
-@router.get("/{venta_id}")
-async def obtener_venta(
-    venta_id: int,
-    conn=Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    """Obtener venta con sus líneas de detalle."""
-    venta = await conn.fetchrow("""
-        SELECT jv.*, ef.fecha as fecha_evento, ef.lugar, ef.estado as estado_evento
-        FROM journal_ventas jv
-        JOIN eventos_feria ef ON jv.evento_feria_id = ef.id
-        WHERE jv.id = $1
-    """, venta_id)
-    if not venta:
-        raise HTTPException(status_code=404, detail="Venta no encontrada")
-
-    lineas = await conn.fetch("""
-        SELECT lv.*, p.nombre as nombre_producto
-        FROM lineas_venta lv
-        LEFT JOIN productos p ON lv.producto_id = p.id
-        WHERE lv.venta_id = $1
-    """, venta_id)
-
-    return {
-        "venta": dict(venta),
-        "lineas": [dict(l) for l in lineas]
-    }
-
-
 @router.post("/{venta_id}/modificar")
 async def modificar_venta(
     venta_id: int,
@@ -174,12 +190,12 @@ async def modificar_venta(
     conn=Depends(get_db),
     current_user=Depends(require_admin)
 ):
-    """[ADMIN ONLY] Modificar venta existente. Requiere nota explicativa.
-
-    Registra en reclasificacion_log todo cambio.
+    """
+    [ADMIN ONLY] Modificar venta - Los campos redundantes se actualizan por trigger
     """
     venta = await conn.fetchrow(
-        "SELECT * FROM journal_ventas WHERE id = $1", venta_id
+        "SELECT * FROM journal_ventas WHERE id = $1",
+        venta_id
     )
     if not venta:
         raise HTTPException(status_code=404, detail="Venta no encontrada")
@@ -231,4 +247,8 @@ async def modificar_venta(
                 total_final, venta_id
             )
 
-    return {"message": "Venta modificada por administrador", "venta_id": venta_id, "nota": mod.nota_modificacion}
+    return {
+        "message": "Venta modificada por administrador",
+        "venta_id": venta_id,
+        "nota": mod.nota_modificacion
+    }
