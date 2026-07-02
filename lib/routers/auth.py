@@ -21,20 +21,16 @@ class LoginRequest(BaseModel):
     password: str
 
 
-@router.post("/login")
-async def login(body: dict = Body(...), conn=Depends(get_db)):
-    """Versión temporal para debug"""
-    print("Body recibido:", body)   # Esto aparecerá en los logs de Render
-    email = body.get("email") or body.get("username")
-    password = body.get("password")
-
-    if not email or not password:
-        raise HTTPException(status_code=422, detail="Faltan email o password")
-
-    # Resto de la lógica...
+@router.post("/login", response_model=Token)
+async def login(login_data: LoginRequest = Body(...), conn=Depends(get_db)):
+    print("Body recibido:", login_data.dict())  # debug
     user = await conn.fetchrow(
-        "SELECT id, nombre, password_hash, activo FROM usuarios WHERE (email = $1 OR nombre = $1)",
-        email
+        """
+        SELECT id, nombre, password_hash, activo
+        FROM usuarios
+        WHERE (email = $1 OR nombre = $1)
+        """,
+        login_data.email
     )
 
     if not user or not verify_password(password, user["password_hash"]):
