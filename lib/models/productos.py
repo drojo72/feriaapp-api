@@ -3,7 +3,7 @@ FeriaApp API v2.1 — Modelos Pydantic: Productos y Bodega
 """
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date
 
 
 class ProductoOut(BaseModel):
@@ -32,10 +32,16 @@ class ProductoOut(BaseModel):
     notas: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    historia_origen: Optional[str] = None
+    historia_ubicacion: Optional[str] = None
+    historia_motivo: Optional[str] = None
+    historia_tags: Optional[List[str]] = None
+    qr_code: Optional[str] = None
+    fecha_recepcion: Optional[date] = None
+    clasificado_por_id: Optional[int] = None
 
 
 class ProductoCreate(BaseModel):
-    """Crear producto nuevo (bodega / ingreso)."""
     nombre: str
     categoria_feriaapp_id: Optional[int] = None
     categoria_revistete_id: Optional[int] = None
@@ -57,10 +63,14 @@ class ProductoCreate(BaseModel):
     descripcion_defectos: Optional[str] = None
     fotos: Optional[list] = None
     notas: Optional[str] = None
+    historia_origen: Optional[str] = None
+    historia_ubicacion: Optional[str] = None
+    historia_motivo: Optional[str] = None
+    historia_tags: Optional[List[str]] = None
+    fecha_recepcion: Optional[date] = None
 
 
 class ProductoUpdate(BaseModel):
-    """Actualizar producto existente. Todos los campos opcionales."""
     nombre: Optional[str] = None
     categoria_feriaapp_id: Optional[int] = None
     categoria_revistete_id: Optional[int] = None
@@ -82,4 +92,15 @@ class ProductoUpdate(BaseModel):
     descripcion: Optional[str] = None
     descripcion_defectos: Optional[str] = None
     fotos: Optional[list] = None
+    notas: Optional[str] = None
+    historia_origen: Optional[str] = None
+    historia_ubicacion: Optional[str] = None
+    historia_motivo: Optional[str] = None
+    historia_tags: Optional[List[str]] = None
+
+
+class MovimientoPrendaIn(BaseModel):
+    canal_origen: Optional[str] = None
+    canal_destino: str
+    motivo: str
     notas: Optional[str] = None
