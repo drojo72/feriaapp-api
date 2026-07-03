@@ -9,7 +9,7 @@ class LoginRequest(BaseModel):
 
     @property
     def identifier(self):
-        return self.email or self.username
+        return self.username
 
 class Token(BaseModel):
     access_token: str
