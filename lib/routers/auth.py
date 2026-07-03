@@ -17,7 +17,7 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 class LoginRequest(BaseModel):
-    email: str
+    username: str
     password: str
 
 
@@ -28,9 +28,9 @@ async def login(login_data: LoginRequest = Body(...), conn=Depends(get_db)):
         """
         SELECT id, nombre, password_hash, activo
         FROM usuarios
-        WHERE (email = $1 OR nombre = $1)
+        WHERE (nombre = $1)
         """,
-        login_data.email
+        login_data.username
     )
 
     if not user or not verify_password(password, user["password_hash"]):
