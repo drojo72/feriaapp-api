@@ -3,8 +3,13 @@ from pydantic import BaseModel
 from typing import Optional
 
 class LoginRequest(BaseModel):
-    email: str
+    email: str | None = None
+    username: str | None = None
     password: str
+
+    @property
+    def identifier(self):
+        return self.email or self.username
 
 class Token(BaseModel):
     access_token: str
