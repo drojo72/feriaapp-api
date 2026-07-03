@@ -28,7 +28,7 @@ async def login(login_data: LoginRequest = Body(...), conn=Depends(get_db)):
         """
         SELECT id, nombre, password_hash, activo
         FROM usuarios
-        WHERE (email = $1 OR nombre = $1)
+        WHERE (nombre = $1)
         """,
         login_data.username
     )
