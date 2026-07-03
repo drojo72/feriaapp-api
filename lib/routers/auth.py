@@ -30,7 +30,7 @@ async def login(login_data: LoginRequest = Body(...), conn=Depends(get_db)):
         FROM usuarios
         WHERE (email = $1 OR nombre = $1)
         """,
-        login_data.email
+        login_data.username
     )
 
     if not user:
