@@ -23,28 +23,33 @@ class LoginRequest(BaseModel):
 
 @router.post("/login", response_model=Token)
 async def login(login_data: LoginRequest = Body(...), conn=Depends(get_db)):
-    print("Body recibido:", login_data.dict())  # debug
+    """Login con JSON"""
     user = await conn.fetchrow(
         """
         SELECT id, nombre, password_hash, activo
         FROM usuarios
-        WHERE (nombre = $1)
+        WHERE (email = $1 OR nombre = $1)
         """,
-        login_data.username
+        login_data.email
     )
 
-    if not user or not verify_password(password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
 
-    # ... (generar tokens igual que antes)
+    if not verify_password(login_data.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+
+    if not user["activo"]:
+        raise HTTPException(status_code=403, detail="Usuario desactivado")
+
     access_token = create_access_token({"sub": str(user["id"]), "name": user["nombre"]})
     refresh_token = create_refresh_token({"sub": str(user["id"])})
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "expires_in": settings.access_token_expire_minutes * 60
-    }
+    return Token(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=settings.access_token_expire_minutes * 60
+    )
 
 
 @router.post("/refresh", response_model=Token)
