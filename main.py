@@ -9,6 +9,8 @@ Estructura:
   lib/routers/    — endpoints por dominio
 """
 import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -27,17 +29,12 @@ app = FastAPI(
     version=settings.version
 )
 
+logger.info("🚀 Iniciando aplicación - Configurando CORS")
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:4321",
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:4321",
-        "https://feriaapp.pages.dev",
-        "*"   # ← mantén "*" mientras estás en desarrollo
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,7 +42,7 @@ app.add_middleware(
     max_age=3600,
 )
 
-
+logger.info("✅ CORS configurado con allow_origins = *")
 
 app.include_router(auditoria.router)
 
@@ -100,6 +97,11 @@ async def root():
 # ============================================
 # MAIN
 # ============================================
+
+@app.on_event("startup")
+async def startup():
+    logger.info("🔥 Aplicación iniciada correctamente en Render")
+    await init_pool()
 
 if __name__ == "__main__":
     import uvicorn
