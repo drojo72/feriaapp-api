@@ -30,9 +30,16 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],                    # Cambia a "*" temporalmente
+    allow_origins=[
+        "http://localhost:4321",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:4321",
+        "https://feriaapp.pages.dev",
+        "*"   # ← mantén "*" mientras estás en desarrollo
+    ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
     max_age=3600,
