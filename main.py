@@ -38,11 +38,17 @@ app.add_middleware(
     max_age=3600,
 )
 
+
+
 app.include_router(auditoria.router)
 
 # ============================================
 # LIFECYCLE
 # ============================================
+
+@app.options("/auth/login")
+async def login_options():
+    return {}
 
 @app.on_event("startup")
 async def startup():
