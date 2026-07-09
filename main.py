@@ -9,23 +9,19 @@ Estructura:
   lib/routers/    — endpoints por dominio
 """
 import logging
+
+# Configuración logging (una sola vez)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from lib.routers import catalogo_complemento
-app.include_router(catalogo_complemento.router)
 
 from lib.core.config import settings
 from lib.core.database import init_pool, close_pool
 from lib.routers import auth, catalogo, productos, ventas, eventos, sync, health, auditoria
 
-# Configuración logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# App FastAPI
+# App FastAPI (DEFINIR ANTES de usar app.include_router)
 app = FastAPI(
     title="FeriaApp API",
     description="API para FeriaApp v2.1 - Feria Dominical + Re-Vistete + Granja Toqui",
@@ -47,21 +43,16 @@ app.add_middleware(
 
 logger.info("✅ CORS configurado con allow_origins = *")
 
-app.include_router(auditoria.router)
-
 # ============================================
 # LIFECYCLE
 # ============================================
-
-@app.options("/auth/login")
-async def login_options():
-    return {}
 
 @app.on_event("startup")
 async def startup():
     """Inicializar pool de conexiones PostgreSQL."""
     try:
         await init_pool()
+        logger.info("🔥 Aplicación iniciada correctamente en Render")
     except Exception as e:
         logger.error(f"❌ Database connection failed: {e}")
         raise
@@ -82,6 +73,7 @@ app.include_router(productos.router)
 app.include_router(ventas.router)
 app.include_router(eventos.router)
 app.include_router(sync.router)
+app.include_router(auditoria.router)
 
 # ============================================
 # ROOT
@@ -100,11 +92,6 @@ async def root():
 # ============================================
 # MAIN
 # ============================================
-
-@app.on_event("startup")
-async def startup():
-    logger.info("🔥 Aplicación iniciada correctamente en Render")
-    await init_pool()
 
 if __name__ == "__main__":
     import uvicorn
