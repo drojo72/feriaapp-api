@@ -23,5 +23,6 @@ class TokenRefresh(BaseModel):
 class UsuarioOut(BaseModel):
     id: int
     nombre: str
+    username: str
     # agrega otros campos que necesites (email, etc.)
     activo: bool = True
