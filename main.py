@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from lib.routers import catalogo_complemento
+app.include_router(catalogo_complemento.router)
+
 from lib.core.config import settings
 from lib.core.database import init_pool, close_pool
 from lib.routers import auth, catalogo, productos, ventas, eventos, sync, health, auditoria
